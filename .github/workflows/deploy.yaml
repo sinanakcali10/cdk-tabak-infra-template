@@ -1,0 +1,56 @@
+# Automatic pipeline to deploy to dev, test, or prod
+
+name: Deploy AWS CDK App (dev/staging/prod)
+
+on:
+  push:
+    branches:
+      - dev
+      - test
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Install npm and AWS CDK
+        run: |
+          sudo apt update -y
+          sudo apt install nodejs npm -y
+          npm install
+          npm install -g aws-cdk
+          npm install aws-cdk-lib
+
+      - name: Build Lambda layers
+        run: |
+          for dir in src/resources/layers/*; do
+            if [ -d "$$dir" ]; then
+              layer_name=$$(basename $$dir)
+              echo "Building layer: $$layer_name"
+              make $$layer_name.layer
+            fi
+          done
+
+      - name: CDK deploy for each environment
+        run: |
+          if [ "${{ github.ref_name }}" == "dev" ]; then
+            cdk deploy --exclusively "dev*" --require-approval never;
+          elif [ "${{ github.ref_name }}" == "test" ]; then
+            cdk deploy --exclusively "test*" --require-approval never;
+          elif [ "${{ github.ref_name }}" == "main" ]; then
+            cdk deploy --exclusively "prod*" --require-approval never;
+          fi
+        env:
+          NODE_ENV: ${{ github.ref_name }}
